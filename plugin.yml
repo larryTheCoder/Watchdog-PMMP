@@ -1,0 +1,6 @@
+name: Watchdog
+main: larryTheCoder\Watchdog
+version: 1.0-SNAPSHOT
+api: [3.0.0]
+load: POSTWORLD
+author: larryTheCoder

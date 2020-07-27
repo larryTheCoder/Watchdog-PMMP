@@ -21,6 +21,7 @@ declare(strict_types = 1);
 
 namespace larryTheCoder;
 
+use pocketmine\snooze\SleeperNotifier;
 use pocketmine\Thread;
 use pocketmine\utils\MainLogger;
 use pocketmine\utils\Utils;
@@ -30,56 +31,51 @@ class WatchdogThread extends Thread {
 	private $running = true;
 
 	/** @var int */
-	private $nowTick = 0;
+	private $timeout; // The value that is responsible for timeout.
+	/** @var SleeperNotifier */
+	private $notifier;
+	/** @var boolean */
+	public $isResponded = true;
 
 	/** @var int */
-	private $timeoutConf;
+	private $preTimeout = 0;
 
-	public function __construct(int $timeout){
-		$this->timeoutConf = $timeout;
+	public function __construct(SleeperNotifier $handler, int $timeout){
+		$this->notifier = $handler;
 		$this->timeout = $timeout;
 	}
 
 	public function run(){
-		MainLogger::getLogger()->debug("Started watchdog thread");
+		$unit = 1000000;
 
-		$lastTick = 0;
 		while($this->running){
-			switch(true):
-				/** @noinspection PhpMissingBreakStatementInspection */
-				case ($lastTick > $this->nowTick):  // The server somehow time travelled back to the past.
-					MainLogger::getLogger()->debug("Server has travelled back to the past?");
-				case ($lastTick < $this->nowTick): // The server is ticking correctly.
-					$this->performResponse();
+			if(!$this->isResponded){
+				$this->performTimeout();
+				$this->notifier->wakeupSleeper();
 
-					$lastTick = $this->nowTick;
-					break;
-				case ($lastTick === $this->nowTick): // The server didn't response in the specified time.
-					$this->performTimeout();
-					break;
+				$this->synchronized(function() use ($unit){
+					$this->wait($unit); // 1 seconds
+				});
+			}else{
+				$this->preTimeout = 0;
+				$this->isResponded = false;
+				$this->notifier->wakeupSleeper();
 
-			endswitch;
-
-			sleep(1);
+				// 1000000 = 1 seconds
+				$this->synchronized(function() use ($unit){
+					$this->wait(15 * $unit); // Seconds to milliseconds.
+				});
+			}
 		}
-
-		MainLogger::getLogger()->debug("Stopping watchdog thread");
-	}
-
-	/** @var int */
-	private $timeout; // The value that is responsible for timeout.
-
-	private function performResponse(): void{
-		$this->timeout = $this->timeoutConf;
 	}
 
 	/**
-	 * Responsible for killing the server if the server doesn't response
+	 * Responsible to kill the server if the server doesn't response
 	 * more than the requested amount of time.
 	 */
 	private function performTimeout(): void{
-		$this->timeout--;
-		if($this->timeout <= 0){
+		$this->preTimeout++;
+		if($this->preTimeout > $this->timeout){
 			MainLogger::$logger->emergency("--------- SERVER STOPPED RESPONDING ---------");
 			@self::killSc(getmypid());
 		}
@@ -108,10 +104,6 @@ class WatchdogThread extends Thread {
 		$this->running = false;
 
 		parent::quit();
-	}
-
-	public function tickWatchdog(int $serverTick){
-		$this->nowTick = $serverTick;
 	}
 
 	public function getThreadName(): string{

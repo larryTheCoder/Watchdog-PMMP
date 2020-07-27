@@ -21,8 +21,9 @@ declare(strict_types = 1);
 
 namespace larryTheCoder;
 
-use larryTheCoder\task\WatchdogNotifyTask;
 use pocketmine\plugin\PluginBase;
+use pocketmine\Server;
+use pocketmine\snooze\SleeperNotifier;
 
 class Watchdog extends PluginBase {
 
@@ -43,14 +44,23 @@ class Watchdog extends PluginBase {
 	public function onEnable(){
 		$this->saveResource("config.yml");
 
-		$this->getScheduler()->scheduleDelayedRepeatingTask(new WatchdogNotifyTask(), 2 * 20, 5);
+		// Watchdog has already been initialized.
+		if(isset($this->getServer()->watchdog)) return;
 
-		if(isset($this->getServer()->watchdog)){
-			return;
-		}
+		$notifier = new SleeperNotifier();
+		Server::getInstance()->getTickSleeper()->addNotifier($notifier, function(): void{
+			$this->handleNotifications();
+		});
 
-		$server = $this->getServer();
-		$server->watchdog = new WatchdogThread($this->getConfig()->get("timeout", 60));
-		$server->watchdog->start();
+		$this->getServer()->watchdog = new WatchdogThread($notifier, $this->getConfig()->get("timeout", 60));
+		$this->getServer()->watchdog->start();
+	}
+
+	private function handleNotifications(){
+		/** @var WatchdogThread $wd */
+		/** @noinspection PhpUndefinedFieldInspection */
+		$wd = Server::getInstance()->watchdog;
+
+		$wd->isResponded = true;
 	}
 }

@@ -52,8 +52,8 @@ class Watchdog extends PluginBase {
 			$this->handleNotifications();
 		});
 
-		$this->getServer()->watchdog = new WatchdogThread($notifier, $this->getConfig()->get("timeout", 60));
-		$this->getServer()->watchdog->start();
+		$this->getServer()->watchdog = new WatchdogThread($notifier, $this->getConfig()->get("timeout", 60), Server::getInstance()->getLogger());
+		$this->getServer()->watchdog->start(PTHREADS_INHERIT_NONE);
 	}
 
 	private function handleNotifications(){

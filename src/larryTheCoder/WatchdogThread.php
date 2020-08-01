@@ -21,10 +21,10 @@ declare(strict_types = 1);
 
 namespace larryTheCoder;
 
+use AttachableThreadedLogger;
 use pocketmine\snooze\SleeperNotifier;
 use pocketmine\Thread;
-use pocketmine\utils\MainLogger;
-use pocketmine\utils\Utils;
+use pocketmine\utils\Process;
 
 class WatchdogThread extends Thread {
 
@@ -39,15 +39,19 @@ class WatchdogThread extends Thread {
 
 	/** @var int */
 	private $preTimeout = 0;
+	/** @var AttachableThreadedLogger */
+	private $logger;
 
-	public function __construct(SleeperNotifier $handler, int $timeout){
+	public function __construct(SleeperNotifier $handler, int $timeout, AttachableThreadedLogger $logger){
 		$this->notifier = $handler;
 		$this->timeout = $timeout;
+		$this->logger = $logger;
 	}
 
 	public function run(){
-		$unit = 1000000;
+		$this->registerClassLoader();
 
+		$unit = 1000000;
 		while($this->running){
 			if(!$this->isResponded){
 				$this->performTimeout();
@@ -58,12 +62,13 @@ class WatchdogThread extends Thread {
 				});
 			}else{
 				$this->preTimeout = 0;
-				$this->isResponded = false;
-				$this->notifier->wakeupSleeper();
 
 				// 1000000 = 1 seconds
 				$this->synchronized(function() use ($unit){
 					$this->wait(15 * $unit); // Seconds to milliseconds.
+
+					$this->notifier->wakeupSleeper();
+					$this->isResponded = false;
 				});
 			}
 		}
@@ -76,27 +81,9 @@ class WatchdogThread extends Thread {
 	private function performTimeout(): void{
 		$this->preTimeout++;
 		if($this->preTimeout > $this->timeout){
-			MainLogger::$logger->emergency("--------- SERVER STOPPED RESPONDING ---------");
-			@self::killSc(getmypid());
-		}
-	}
+			$this->logger->emergency("KILLING SERVER, SERVER IS NOW IN AN UNRECOVERABLE STATE.");
 
-	public static function killSc($pid): void{
-		if(MainLogger::isRegisteredStatic()){
-			MainLogger::getLogger()->syncFlushBuffer();
-		}
-		switch(Utils::getOS()){
-			case Utils::OS_WINDOWS:
-				exec("taskkill.exe /F /PID $pid > NUL");
-				break;
-			case Utils::OS_MACOS:
-			case Utils::OS_LINUX:
-			default:
-				if(function_exists("posix_kill")){
-					posix_kill($pid, 9); //SIGKILL
-				}else{
-					exec("kill -9 $pid > /dev/null 2>&1");
-				}
+			@Process::kill(getmypid());
 		}
 	}
 
